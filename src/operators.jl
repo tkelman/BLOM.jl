@@ -21,3 +21,35 @@ function +(ex1::GeneralExpression, ex2::GeneralExpression)
     return GeneralExpression(model, coefs, exponents,
         ex1.specialfcn || ex2.specialfcn, auxK, auxPt)
 end
+
+function num2expr(v1::Number, model::Model)
+    numvars = model.numvars
+    return GeneralExpression(model, Float64[v1], spzeros(numvars, 1),
+        false, spzeros(0, 0), spzeros(numvars, 0))
+end
+
+add!(ex1::GeneralExpression, v2::Number) = add!(ex1, num2expr(v2, ex1.model))
+add!(v1::Number, ex2::GeneralExpression) = add!(ex2, num2expr(v1, ex2.model))
++(ex1::GeneralExpression, v2::Number) = ex1 + num2expr(v2, ex1.model)
++(v1::Number, ex2::GeneralExpression) = ex2 + num2expr(v1, ex2.model)
+
+function mul!(ex1::GeneralExpression, v2::Number)
+    scale!(ex1.coefs, v2)
+    return ex1
+end
+
+function mul!(v1::Number, ex2::GeneralExpression)
+    scale!(ex2.coefs, v1)
+    return ex2
+end
+
+function *(ex1::GeneralExpression, v2::Number)
+    return GeneralExpression(ex1.model, ex1.coefs .* v2, copy(ex1.exponents),
+        ex1.specialfcn, copy(ex1.auxK), copy(ex1.auxPt))
+end
+
+function *(v1::Number, ex2::GeneralExpression)
+    return GeneralExpression(ex2.model, v1 .* ex2.coefs, copy(ex2.exponents),
+        ex2.specialfcn, copy(ex2.auxK), copy(ex2.auxPt))
+end
+

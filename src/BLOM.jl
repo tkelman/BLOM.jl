@@ -1,9 +1,6 @@
 module BLOM
 using Calculus, Compat
 
-include("sparseutils.jl")
-include("operators.jl")
-
 functioncodes = Dict{Symbol, Float64}()
 for (i, f) in enumerate(symbolic_derivatives_1arg())
     # code value chosen large enough that (1+eps)^x overflows in Float64
@@ -19,7 +16,8 @@ type Model
     objcoefs::SparseMatrixCSC{Float64,Int} # actually a sparse vector
     constrcoefs::SparseMatrixCSC{Float64,Int}
     exponents::SparseMatrixCSC{Float64,Int}
-    Model() = new(0, Float64[], Float64[], Float64[], spzeros(0,1), spzeros())
+    Model() = new(0, Float64[], Float64[], Float64[], spzeros(0,1),
+        spzeros(0,0), spzeros(0,0))
 end
 # For now, only do one type of Model with equality constraints and variable
 # bounds. Later, look into a separate type of Model which tries harder to
@@ -65,6 +63,9 @@ function convert(::Type{GeneralExpression}, x::Variable)
     return GeneralExpression(model, [1.0], sparsevec(x.idx, 1.0, numvars),
         false, spzeros(0, 0), spzeros(numvars, 0))
 end
+
+include("sparseutils.jl")
+include("operators.jl")
 
 
 end # module

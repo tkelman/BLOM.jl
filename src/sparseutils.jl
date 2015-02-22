@@ -140,6 +140,8 @@ function add_expressions(coefs1::Vector{Float64},
             Pt2_cv = SparseColumnView(Pt2, Pt2_c)
         end
     else
+        # TODO: check other direction, if last column of Pt2 sorts before
+        # first column of Pt1
         coefsout = Float64[]
         Pto = spzeros(Pt1_m, 0)
         Pt1_c = 1
@@ -221,6 +223,8 @@ function concat_expressions(K1::SparseMatrixCSC{Float64,Int},
         end
         Ko.m += K2_m
     else
+        # TODO: check other direction, if last column of Pt2 sorts before
+        # first column of Pt1
         Ko = spzeros(K1_m + K2_m, 0)
         Pto = spzeros(Pt1_m, 0)
         Pt1_c = 1
