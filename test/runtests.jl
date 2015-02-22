@@ -1,5 +1,10 @@
 using BLOM
 using Base.Test
 
-# write your own tests here
-@test 1 == 1
+model = BLOM.Model()
+x1 = BLOM.newVariable(model)
+x2 = BLOM.newVariable(model)
+x3 = BLOM.newVariable(model)
+
+ex1 = convert(BLOM.GeneralExpression, x3)
+ex2 = convert(BLOM.GeneralExpression, x1)

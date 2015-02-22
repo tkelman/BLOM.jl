@@ -9,9 +9,16 @@ immutable SparseColumnView
 end
 
 function nzrange(S::SparseColumnView)
-    colptr = S.A.colptr
+    A = S.A
+    colptr = A.colptr
     col = S.colidx
-    return (colptr[col], colptr[col+1]-1)
+    if col <= 0
+        return (1, 0)
+    elseif col > size(A, 2)
+        return (colptr[end], colptr[end]-1)
+    else
+        return (colptr[col], colptr[col+1]-1)
+    end
 end
 
 function lexcmp(col1::SparseColumnView, col2::SparseColumnView)
@@ -21,20 +28,22 @@ function lexcmp(col1::SparseColumnView, col2::SparseColumnView)
     # on the nonzero values, or 0 if all nonzero values are equal.
     (i1, i1max) = nzrange(col1)
     (i2, i2max) = nzrange(col2)
-    if i1 > i1max # col1 is all zeros
-        if i2 > i2max # col2 is also all zeros
-            return 0
-        else # col2 has at least 1 nonzero
-            return 1
-        end
-    elseif i2 > i2max # col1 has at least 1 nonzero, col2 is all zeros
-        return -1
-    end
-    rowvals1 = col1.A.rowval
-    rowvals2 = col2.A.rowval
-    nzvals1 = col1.A.nzval
-    nzvals2 = col2.A.nzval
+    A1 = col1.A
+    A2 = col2.A
+    rowvals1 = A1.rowval
+    rowvals2 = A2.rowval
+    nzvals1 = A1.nzval
+    nzvals2 = A2.nzval
     while true
+        if i1 > i1max # rest of col1 is all zeros
+            if i2 > i2max # rest of col2 is also all zeros
+                return 0
+            else # col2 has at least 1 more nonzero
+                return 1
+            end
+        elseif i2 > i2max # rest of col2 is all zeros
+            return -1 # and col1 has at least 1 more nonzero
+        end
         r1 = rowvals1[i1]
         r2 = rowvals2[i2]
         if r1 == r2
@@ -117,7 +126,8 @@ function add_expressions(coefs1::Vector{Float64},
         Pt1::SparseMatrixCSC{Float64,Int},
         coefs2::Vector{Float64},
         Pt2::SparseMatrixCSC{Float64,Int},
-        allow_inplace::Bool)
+        allow_inplace::Bool,
+        mult::Float64 = 1.0)
     (Pt1_m, Pt1_n) = size(Pt1)
     (Pt2_m, Pt2_n) = size(Pt2)
     Pt1_nnz = nnz(Pt1)
@@ -135,7 +145,18 @@ function add_expressions(coefs1::Vector{Float64},
         end
         Pt1_c = Pt1_n + 1
         if lc == 0
-            coefsout[Pt1_n] += coefs2[1]
+            newcoef = coefsout[Pt1_n] + mult * coefs2[1]
+            if newcoef == 0.0
+                # drop the already-copied last column of Pt1
+                pop!(coefsout)
+                Pto.n -= 1
+                (imin, imax) = nzrange(SparseColumnView(Pt1, Pt1_n))
+                deleteat!(Pto.rowval, imin : imax)
+                deleteat!(Pto.nzval, imin : imax)
+                pop!(Pto.colptr)
+            else
+                coefsout[Pt1_n] = newcoef
+            end
             Pt2_c = 2
             Pt2_cv = SparseColumnView(Pt2, Pt2_c)
         end
@@ -161,12 +182,15 @@ function add_expressions(coefs1::Vector{Float64},
             Pt1_cv = SparseColumnView(Pt1, Pt1_c)
         elseif lc == 1
             appendcolumn!(Pto, Pt2_cv)
-            push!(coefsout, coefs2[Pt2_c])
+            push!(coefsout, mult * coefs2[Pt2_c])
             Pt2_c += 1
             Pt2_cv = SparseColumnView(Pt2, Pt2_c)
         else
-            appendcolumn!(Pto, Pt1_cv)
-            push!(coefsout, coefs1[Pt1_c] + coefs2[Pt2_c])
+            newcoef = coefs1[Pt1_c] + mult * coefs2[Pt2_c]
+            if newcoef != 0
+                appendcolumn!(Pto, Pt1_cv)
+                push!(coefsout, newcoef)
+            end
             Pt1_c += 1
             Pt2_c += 1
             Pt1_cv = SparseColumnView(Pt1, Pt1_c)
@@ -179,7 +203,7 @@ function add_expressions(coefs1::Vector{Float64},
     end
     for c2 = Pt2_c : Pt2_n
         appendcolumn!(Pto, SparseColumnView(Pt2, c2))
-        push!(coefsout, coefs2[c2])
+        push!(coefsout, mult * coefs2[c2])
     end
     return (coefsout, Pto)
 end
@@ -216,7 +240,7 @@ function concat_expressions(K1::SparseMatrixCSC{Float64,Int},
             appendcolumn!(Ko, SparseColumnView(K2, Pt2_c), K1_m)
             # append first column of K2 to end of Ko, but adjust colptr and n to
             # put it in the same column as the already-copied last column of K1
-            deleteat!(Ko.colptr, K1_n)
+            K1_n > 0 && deleteat!(Ko.colptr, K1_n)
             Ko.n -= 1
             Pt2_c = 2
             Pt2_cv = SparseColumnView(Pt2, Pt2_c)

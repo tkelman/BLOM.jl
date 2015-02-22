@@ -57,7 +57,7 @@ type GeneralExpression # linear combination of terms of the form ∏ᵢ x[i]^p[i
     auxPt::SparseMatrixCSC{Float64,Int} # auxiliary constraint exponent matrix
 end
 
-function convert(::Type{GeneralExpression}, x::Variable)
+function Base.convert(::Type{GeneralExpression}, x::Variable)
     model = x.model
     numvars = model.numvars
     return GeneralExpression(model, [1.0], sparsevec(x.idx, 1.0, numvars),
