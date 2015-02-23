@@ -8,3 +8,5 @@ x3 = BLOM.newVariable(model)
 
 ex1 = convert(BLOM.GeneralExpression, x3)
 ex2 = convert(BLOM.GeneralExpression, x1)
+
+ex1 + ex2

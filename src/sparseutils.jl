@@ -240,7 +240,7 @@ function concat_expressions(K1::SparseMatrixCSC{Float64,Int},
             appendcolumn!(Ko, SparseColumnView(K2, Pt2_c), K1_m)
             # append first column of K2 to end of Ko, but adjust colptr and n to
             # put it in the same column as the already-copied last column of K1
-            K1_n > 0 && deleteat!(Ko.colptr, K1_n)
+            deleteat!(Ko.colptr, K1_n)
             Ko.n -= 1
             Pt2_c = 2
             Pt2_cv = SparseColumnView(Pt2, Pt2_c)
