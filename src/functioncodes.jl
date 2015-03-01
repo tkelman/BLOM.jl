@@ -1,8 +1,13 @@
 functioncodes = Dict{Symbol, Float64}()
+functioncodes_inverse = Dict{Float64, Function}()
 open(joinpath(dirname(@__FILE__), "BLOM_functioncodes.h")) do file
     for line in eachline(file)
-        (func, val) = split(replace(line, "#define BLOM_FUNCTIONCODE_", ""))
-        functioncodes[symbol(lowercase(func))] = float64(val)
+        funcval = split(replace(line, "#define BLOM_FUNCTIONCODE_", ""))
+        func = symbol(lowercase(funcval[1]))
+        val = float64(funcval[2])
+        functioncodes[func] = val
+        func == :minval && continue
+        functioncodes_inverse[val] = eval(func)
     end
 end
 # min code value chosen large enough that (1+eps)^x overflows in Float64

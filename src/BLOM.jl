@@ -71,5 +71,30 @@ include("functioncodes.jl")
 include("sparseutils.jl")
 include("operators.jl")
 
+function getValue(ex::GeneralExpression)
+    x = ex.model.x
+    coefs = ex.coefs
+    exponents = ex.exponents
+    rowvals = exponents.rowval
+    nzvals = exponents.nzval
+    result = 0.0
+    for col = 1:length(coefs)
+        prodval = 1.0
+        (imin, imax) = nzrange(SparseColumnView(exponents, col))
+        for i = imin:imax
+            row = rowvals[i]
+            exponent = nzvals[i]
+            if exponent < minfunctioncode
+                prodval *= x[row] ^ exponent
+            elseif haskey(functioncodes_inverse, exponent)
+                prodval *= functioncodes_inverse[exponent](x[row])
+            else
+                error("function not found for code $exponent")
+            end
+        end
+        result += coefs[col] * prodval
+    end
+    return result
+end
 
 end # module
