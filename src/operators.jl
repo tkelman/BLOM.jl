@@ -43,11 +43,11 @@ function -(ex1::GeneralExpression, ex2::GeneralExpression)
         ex1.specialfcn || ex2.specialfcn, auxK, auxPt)
 end
 
-function scale!(ex1::GeneralExpression, v2::Real)
+function Base.scale!(ex1::GeneralExpression, v2::Real)
     scale!(ex1.coefs, v2)
     return ex1
 end
-scale(ex1::GeneralExpression, v2::Real) = scale!(copy(ex1), v2)
+Base.scale(ex1::GeneralExpression, v2::Real) = scale!(copy(ex1), v2)
 
 function num2expr(v1::Real, model::Model)
     numvars = model.numvars
