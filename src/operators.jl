@@ -153,7 +153,6 @@ function ^(x1::Variable, v2::Real)
     return GeneralExpression(model, [1.0], sparsevec(x1.idx, v2, numvars),
         v2 >= minfunctioncode, spzeros(0, 0), spzeros(numvars, 0))
 end
-for (f, code) in functioncodes
-    f == :minval && continue
-    @eval (Base.$f)(x1::Variable) = x1 ^ $code
+for (code, f) in specialfunctions
+    f(x1::Variable) = x1 ^ code
 end

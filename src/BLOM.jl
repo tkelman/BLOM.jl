@@ -86,8 +86,8 @@ function getValue(ex::GeneralExpression)
             exponent = nzvals[i]
             if exponent < minfunctioncode
                 prodval *= x[row] ^ exponent
-            elseif haskey(functioncodes_inverse, exponent)
-                prodval *= functioncodes_inverse[exponent](x[row])
+            elseif haskey(specialfunctions, exponent)
+                prodval *= specialfunctions[exponent](x[row])
             else
                 error("function not found for code $exponent")
             end
