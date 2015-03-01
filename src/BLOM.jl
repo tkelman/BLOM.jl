@@ -19,7 +19,7 @@ end
 # constraints, and allows inequality bounds on constraints too (for geometric
 # programming, which should be doable as a special case here).
 
-type Variable
+type Variable # should probably be immutable?
     model::Model
     idx::Int
 end
@@ -63,6 +63,9 @@ function Base.convert(::Type{GeneralExpression}, x::Variable)
     return GeneralExpression(model, [1.0], sparsevec(x.idx, 1.0, numvars),
         false, spzeros(0, 0), spzeros(numvars, 0))
 end
+
+Base.promote_type(::Type{Variable}, ::Type{Variable}) = GeneralExpression
+Base.promote_rule(::Type{Variable}, ::Type{GeneralExpression}) = GeneralExpression
 
 include("functioncodes.jl")
 include("sparseutils.jl")

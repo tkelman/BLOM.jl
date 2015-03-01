@@ -1,6 +1,6 @@
-function sparsevec(idx::Int, val::Float64, numvars::Int)
+function sparsevec(idx::Int, val::Real, numvars::Int)
     # construct a 1-column sparse matrix from a single nonzero
-    return SparseMatrixCSC{Float64,Int}(numvars, 1, [1,2], [idx], [val])
+    return SparseMatrixCSC{Float64,Int}(numvars, 1, [1,2], [idx], Float64[val])
 end
 
 immutable SparseColumnView
