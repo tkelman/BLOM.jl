@@ -1,23 +1,17 @@
 module BLOM
 using Calculus, Compat
 
-functioncodes = Dict{Symbol, Float64}()
-for (i, f) in enumerate(symbolic_derivatives_1arg())
-    # code value chosen large enough that (1+eps)^x overflows in Float64
-    # compatibility risk if the existing order for these moves around
-    functioncodes[f[1]] = i * 1.0e20
-end
-
 type Model
     numvars::Int
     x::Vector{Float64}
     lb::Vector{Float64}
     ub::Vector{Float64}
+    vartypes::Vector{Symbol}
     objcoefs::SparseMatrixCSC{Float64,Int} # actually a sparse vector
     constrcoefs::SparseMatrixCSC{Float64,Int}
     exponents::SparseMatrixCSC{Float64,Int}
-    Model() = new(0, Float64[], Float64[], Float64[], spzeros(0,1),
-        spzeros(0,0), spzeros(0,0))
+    Model() = new(0, Float64[], Float64[], Float64[], Symbol[],
+        spzeros(0,1), spzeros(0,0), spzeros(0,0))
 end
 # For now, only do one type of Model with equality constraints and variable
 # bounds. Later, look into a separate type of Model which tries harder to
@@ -34,15 +28,16 @@ function getValue(xi::Variable)
     return xi.model.x[xi.idx]
 end
 
-function setValue!(xi::Variable, v::Number)
+function setValue!(xi::Variable, v::Real)
     xi.model.x[xi.idx] = v
 end
 
-function newVariable(model::Model, lb = -Inf, ub = Inf, x0 = NaN)
+function newVariable(model::Model; lb = -Inf, ub = Inf, x0 = NaN, vartype = :Cont)
     model.numvars += 1
     push!(model.x, x0)
     push!(model.lb, lb)
     push!(model.ub, ub)
+    push!(model.vartypes, vartype)
     model.exponents.m += 1
     return Variable(model, model.numvars)
 end
@@ -57,6 +52,11 @@ type GeneralExpression # linear combination of terms of the form ∏ᵢ x[i]^p[i
     auxPt::SparseMatrixCSC{Float64,Int} # auxiliary constraint exponent matrix
 end
 
+function Base.copy(ex::GeneralExpression)
+    return GeneralExpression(ex.model, copy(ex.coefs), copy(ex.exponents),
+        ex.specialfcn, copy(ex.auxK), copy(ex.auxPt))
+end
+
 function Base.convert(::Type{GeneralExpression}, x::Variable)
     model = x.model
     numvars = model.numvars
@@ -64,6 +64,7 @@ function Base.convert(::Type{GeneralExpression}, x::Variable)
         false, spzeros(0, 0), spzeros(numvars, 0))
 end
 
+include("functioncodes.jl")
 include("sparseutils.jl")
 include("operators.jl")
 

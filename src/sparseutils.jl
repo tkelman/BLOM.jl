@@ -72,8 +72,8 @@ function lexcmp(col1::SparseColumnView, col2::SparseColumnView)
     end
 end
 
-function appendcolumn!(A::SparseMatrixCSC{Float64,Int}, col::SparseColumnView,
-        rowoffset::Integer = 0)
+function appendcolumn!(A::SparseMatrixCSC{Float64,Int},
+        col::SparseColumnView, rowoffset::Integer = 0)
     out_colptr = A.colptr
     out_rowval = A.rowval
     out_nzval = A.nzval

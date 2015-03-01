@@ -43,38 +43,54 @@ function -(ex1::GeneralExpression, ex2::GeneralExpression)
         ex1.specialfcn || ex2.specialfcn, auxK, auxPt)
 end
 
-function num2expr(v1::Number, model::Model)
+function scale!(ex1::GeneralExpression, v2::Real)
+    scale!(ex1.coefs, v2)
+    return ex1
+end
+scale(ex1::GeneralExpression, v2::Real) = scale!(copy(ex1), v2)
+
+function num2expr(v1::Real, model::Model)
     numvars = model.numvars
     return GeneralExpression(model, Float64[v1], spzeros(numvars, 1),
         false, spzeros(0, 0), spzeros(numvars, 0))
 end
 
-add!(ex1::GeneralExpression, v2::Number) = add!(ex1, num2expr(v2, ex1.model))
-add!(v1::Number, ex2::GeneralExpression) = add!(ex2, num2expr(v1, ex2.model))
-+(ex1::GeneralExpression, v2::Number) = ex1 + num2expr(v2, ex1.model)
-+(v1::Number, ex2::GeneralExpression) = ex2 + num2expr(v1, ex2.model)
-minus!(ex1::GeneralExpression, v2::Number) = add!(ex1, num2expr(-v2, ex1.model))
-minus!(v1::Number, ex2::GeneralExpression) =
-    add!(mul!(ex2, -1.0), num2expr(v1, ex2.model))
--(ex1::GeneralExpression, v2::Number) = ex1 + num2expr(-v2, ex1.model)
--(v1::Number, ex2::GeneralExpression) = num2expr(v1, ex2.model) - ex2
-
-function mul!(ex1::GeneralExpression, v2::Number)
-    scale!(ex1.coefs, v2)
+function add!(ex1::GeneralExpression, v2::Real)
+    coefs = ex1.coefs
+    exponents = ex1.exponents
+    colptr = exponents.colptr
+    if length(colptr) == 0
+        error("invalid expression")
+    elseif length(coefs) == 0 || colptr[end-1] != colptr[end]
+        push!(coefs, v2)
+        push!(colptr, colptr[end])
+        exponents.n += 1
+    else
+        newval = coefs[end] + v2
+        if newval != 0.0
+            coefs[end] = newval
+        else
+            pop!(coefs)
+            pop!(colptr)
+            exponents.n -= 1
+        end
+    end
     return ex1
 end
+add!(v1::Real, ex2::GeneralExpression) = add!(ex2, v1)
++(ex1::GeneralExpression, v2::Real) = add!(copy(ex1), v2)
++(v1::Real, ex2::GeneralExpression) = add!(copy(ex2), v1)
+minus!(ex1::GeneralExpression, v2::Real) = add!(ex1, -v2)
+minus!(v1::Real, ex2::GeneralExpression) = add!(scale!(ex2, -1.0), v1)
+-(ex1::GeneralExpression, v2::Real) = add!(copy(ex1), -v2)
+-(v1::Real, ex2::GeneralExpression) = add!(scale!(copy(ex2), -1.0), v1)
 
-function mul!(v1::Number, ex2::GeneralExpression)
-    scale!(ex2.coefs, v1)
-    return ex2
-end
-
-function *(ex1::GeneralExpression, v2::Number)
+function *(ex1::GeneralExpression, v2::Real)
     return GeneralExpression(ex1.model, ex1.coefs .* v2, copy(ex1.exponents),
         ex1.specialfcn, copy(ex1.auxK), copy(ex1.auxPt))
 end
 
-function *(v1::Number, ex2::GeneralExpression)
+function *(v1::Real, ex2::GeneralExpression)
     return GeneralExpression(ex2.model, v1 .* ex2.coefs, copy(ex2.exponents),
         ex2.specialfcn, copy(ex2.auxK), copy(ex2.auxPt))
 end
