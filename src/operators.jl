@@ -154,5 +154,5 @@ function ^(x1::Variable, v2::Real)
         v2 >= minfunctioncode, spzeros(0, 0), spzeros(numvars, 0))
 end
 for (code, f) in specialfunctions
-    f(x1::Variable) = x1 ^ code
+    @eval (Base.$f)(x1::Variable) = x1 ^ $code
 end

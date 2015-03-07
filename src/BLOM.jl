@@ -82,15 +82,7 @@ function getValue(ex::GeneralExpression)
         prodval = 1.0
         (imin, imax) = nzrange(SparseColumnView(exponents, col))
         for i = imin:imax
-            row = rowvals[i]
-            exponent = nzvals[i]
-            if exponent < minfunctioncode
-                prodval *= x[row] ^ exponent
-            elseif haskey(specialfunctions, exponent)
-                prodval *= specialfunctions[exponent](x[row])
-            else
-                error("function not found for code $exponent")
-            end
+            prodval *= evalfunction(x[rowvals[i]], nzvals[i])
         end
         result += coefs[col] * prodval
     end
