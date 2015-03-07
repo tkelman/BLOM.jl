@@ -1,77 +1,302 @@
-function sparsevec(idx::Int, val::Real, numvars::Int)
-    # construct a 1-column sparse matrix from a single nonzero
-    return SparseMatrixCSC{Float64,Int}(numvars, 1, [1,2], [idx], Float64[val])
+import Base: nnz, nonzeros, convert, size, showarray, lexcmp
+if VERSION >= v"0.4.0-dev+1307"
+    import Base: rowvals
+else
+    nzrange(S::SparseMatrixCSC, col::Integer) =
+        S.colptr[col]:(S.colptr[col+1]-1)
 end
 
-immutable SparseColumnView
-    A::SparseMatrixCSC{Float64,Int}
-    colidx::Int
+# this is effectively a sparse vector type, but does not store its size
+type SparseList{Tv,Ti<:Integer}
+    idx::Vector{Ti}   # indices of nonzeros, assumed to be strictly sorted
+    nzval::Vector{Tv} # structurally nonzero values
 end
 
-function nzrange(S::SparseColumnView)
-    A = S.A
-    colptr = A.colptr
-    col = S.colidx
-    if col <= 0
-        return (1, 0)
-    elseif col > size(A, 2)
-        return (colptr[end], colptr[end]-1)
-    else
-        return (colptr[col], colptr[col+1]-1)
+nnz(S::SparseList) = length(S.idx)
+nonzeros(S::SparseList) = S.nzval
+rowvals(S::SparseList) = S.idx
+
+convert{Tv,Ti,TvS,TiS}(::Type{SparseList{Tv,Ti}}, S::SparseList{TvS,TiS}) =
+    (Tv == TvS && Ti == TiS) ? S : SparseList(convert(Vector{Ti}, S.idx),
+        convert(Vector{Tv}, S.nzval))
+
+# Base.spzeros isn't extensible to other output formats
+slzeros(Tv::Type = Float64, Ti::Type = Int) =
+    SparseList(Array(Ti, 0), Array(Tv, 0))
+
+if VERSION < v"0.4.0-dev+2014"
+    function Base.sizehint(S::SparseList, n::Integer)
+        sizehint(S.idx, n)
+        sizehint(S.nzval, n)
+        return S
+    end
+else
+    function Base.sizehint!(S::SparseList, n::Integer)
+        sizehint!(S.idx, n)
+        sizehint!(S.nzval, n)
+        return S
     end
 end
 
-function lexcmp(col1::SparseColumnView, col2::SparseColumnView)
-    # Return -1 if col1 has a nonzero in an earlier row than col2, or 1 if
-    # col2 has a nonzero in an earlier row than col1. If both columns have
+binaryheader = quote idxA = A.idx; idxB = B.idx; nzvalA = A.nzval;
+    nzvalB = B.nzval; nnzA = length(idxA); nnzB = length(idxB) end
+
+for op in (:+, :.+, :-, :.-, :.*)
+    @eval begin
+        function ($op){TvA,TiA,TvB,TiB}(A::SparseList{TvA,TiA},
+                B::SparseList{TvB,TiB})
+            Tv = promote_type(TvA, TvB)
+            Ti = promote_type(TiA, TiB)
+            A = convert(SparseList{Tv,Ti}, A)
+            B = convert(SparseList{Tv,Ti}, B)
+            return ($op)(A, B)
+        end
+
+        function ($op){Tv,Ti}(A::SparseList{Tv,Ti}, B::SparseList{Tv,Ti})
+            $binaryheader
+            nnzS = nnzA + nnzB # conservative estimate
+            idxS = Array(Ti, nnzS)
+            nzvalS = Array(Tv, nnzS)
+            z = zero(Tv)
+            iS = 1
+            @inbounds begin
+                iA = 1
+                iB = 1
+                if iA <= nnzA && iB <= nnzB
+                    rA = idxA[iA]
+                    rB = idxB[iB]
+                    while true
+                        if rA < rB
+                            res = ($op)(nzvalA[iA], z)
+                            if res != z
+                                idxS[iS] = rA
+                                nzvalS[iS] = res
+                                iS += 1
+                            end
+                            iA += 1
+                            if iA <= nnzA
+                                rA = idxA[iA]
+                            else
+                                break
+                            end
+                        elseif rB < rA
+                            res = ($op)(z, nzvalB[iB])
+                            if res != z
+                                idxS[iS] = rB
+                                nzvalS[iS] = res
+                                iS += 1
+                            end
+                            iB += 1
+                            if iB <= nnzB
+                                rB = idxB[iB]
+                            else
+                                break
+                            end
+                        else
+                            res = ($op)(nzvalA[iA], nzvalB[iB])
+                            if res != z
+                                idxS[iS] = rA
+                                nzvalS[iS] = res
+                                iS += 1
+                            end
+                            iA += 1
+                            iB += 1
+                            if iA <= nnzA && iB <= nnzB
+                                rA = idxA[iA]
+                                rB = idxB[iB]
+                            else
+                                break
+                            end
+                        end
+                    end
+                end
+                while iA <= nnzA
+                    res = ($op)(nzvalA[iA], z)
+                    if res != z
+                        idxS[iS] = idxA[iA]
+                        nzvalS[iS] = res
+                        iS += 1
+                    end
+                    iA += 1
+                end
+                while iB <= nnzB
+                    res = ($op)(z, nzvalB[iB])
+                    if res != z
+                        idxS[iS] = idxB[iB]
+                        nzvalS[iS] = res
+                        iS += 1
+                    end
+                    iB += 1
+                end
+            end
+            deleteat!(idxS, iS : nnzS)
+            deleteat!(nzvalS, iS : nnzS)
+            return SparseList(idxS, nzvalS)
+        end
+    end
+end
+
+# array of sparse columns matrix format
+type SparseMatrixASC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti}
+    m::Int                          # number of rows
+    n::Int                          # number of columns
+    cols::Vector{SparseList{Tv,Ti}} # array of columns
+end
+
+size(S::SparseMatrixASC) = (S.m, S.n)
+nnz(S::SparseMatrixASC) = mapreduce(nnz, +, 0, S.cols) # this is O(n), not O(1)
+
+function convert{Tv,Ti,TvS,TiS}(::Type{SparseMatrixASC{Tv,Ti}},
+        S::SparseMatrixASC{TvS,TiS})
+    if Tv == TvS && Ti == TiS
+        return S
+    else
+        return SparseMatrixASC(S.m, S.n,
+            convert(Vector{SparseList{Tv,Ti}}, S.cols))
+    end
+end
+
+convert{Tv,Ti}(::Type{SparseMatrixCSC{Tv,Ti}}, S::SparseMatrixASC{Tv,Ti}) =
+    SparseMatrixCSC(S.m, S.n, cumsum(unshift!(map(nnz, S.cols), one(Ti))),
+        vcat(map(rowvals, S.cols)...), vcat(map(nonzeros, S.cols)...))
+
+convert{Tv,Ti}(::Type{SparseMatrixASC{Tv,Ti}}, S::SparseMatrixCSC{Tv,Ti}) =
+    SparseMatrixASC(S.m, S.n, [SparseList(S.rowval[nzrange(S, col)],
+        S.nzval[nzrange(S, col)]) for col=1:S.n])
+
+# Base.spzeros isn't extensible to other output formats
+asczeros(m::Integer, n::Integer) = asczeros(Float64, m, n)
+asczeros(Tv::Type, m::Integer, n::Integer) =
+    SparseMatrixASC(m, n, [slzeros(Tv, Int) for col=1:n])
+asczeros(Tv::Type, Ti::Type, m::Integer, n::Integer) =
+    SparseMatrixASC(m, n, [slzeros(Tv, Ti) for col=1:n])
+
+for op in (:+, :.+, :-, :.-, :.*)
+    @eval begin
+        function ($op){TvA,TiA,TvB,TiB}(A::SparseMatrixASC{TvA,TiA},
+                B::SparseMatrixASC{TvB,TiB})
+            Tv = promote_type(TvA, TvB)
+            Ti = promote_type(TiA, TiB)
+            A = convert(SparseMatrixASC{Tv,Ti}, A)
+            B = convert(SparseMatrixASC{Tv,Ti}, B)
+            return ($op)(A, B)
+        end
+
+        function ($op){Tv,Ti}(A::SparseMatrixASC{Tv,Ti},
+                B::SparseMatrixASC{Tv,Ti})
+            (m, n) = size(A)
+            if (m, n) != size(B)
+                throw(DimensionMismatch(""))
+            end
+            Acols = A.cols
+            Bcols = B.cols
+            return SparseMatrixASC(m, n,
+                [($op)(Acols[col], Bcols[col]) for col=1:n])
+        end
+    end
+end
+
+function showarray(io::IO, S::SparseMatrixASC;
+                   header::Bool=true, limit::Bool=Base._limit_output,
+                   rows = Base.tty_size()[1], repr=false)
+    if header
+        print(io, S.m, "x", S.n, " sparse matrix with ", nnz(S), " ",
+            eltype(S), " entries:")
+    end
+
+    if limit
+        half_screen_rows = div(rows - 8, 2)
+    else
+        half_screen_rows = typemax(Int)
+    end
+    pad = ndigits(max(S.m,S.n))
+    k = 0
+    sep = "\n\t"
+    for col = 1:S.n
+        curcol = S.cols[col]
+        idx = curcol.idx
+        nzval = curcol.nzval
+        for i = 1:length(idx)
+            if k < half_screen_rows || k > nnz(S)-half_screen_rows
+                print(io, sep, '[', rpad(idx[i], pad), ", ",
+                    lpad(col, pad), "]  =  ")
+                showcompact(io, nzval[i])
+            elseif k == half_screen_rows
+                print(io, sep, '\u22ee')
+            end
+            k += 1
+        end
+    end
+end
+
+# BLOM-specific definitions
+@eval function lexcmp(A::SparseList, B::SparseList)
+    # Return -1 if A has a nonzero in an earlier index than B, or 1 if
+    # B has a nonzero in an earlier index than A. If both columns have
     # nonzeros in the same rows, return the first nonzero result of lexcmp
     # on the nonzero values, or 0 if all nonzero values are equal.
-    (i1, i1max) = nzrange(col1)
-    (i2, i2max) = nzrange(col2)
-    A1 = col1.A
-    A2 = col2.A
-    rowvals1 = A1.rowval
-    rowvals2 = A2.rowval
-    nzvals1 = A1.nzval
-    nzvals2 = A2.nzval
+    $binaryheader
+    iA = 1
+    iB = 1
     while true
-        if i1 > i1max # rest of col1 is all zeros
-            if i2 > i2max # rest of col2 is also all zeros
+        if iA > nnzA # rest of A is all zeros
+            if iB > nnzB # rest of B is also all zeros
                 return 0
-            else # col2 has at least 1 more nonzero
+            else # B has at least 1 more nonzero
                 return 1
             end
-        elseif i2 > i2max # rest of col2 is all zeros
-            return -1 # and col1 has at least 1 more nonzero
+        elseif iB > nnzB # rest of B is all zeros
+            return -1 # and A has at least 1 more nonzero
         end
-        r1 = rowvals1[i1]
-        r2 = rowvals2[i2]
-        if r1 == r2
-            nz1 = nzvals1[i1]
-            nz2 = nzvals2[i2]
+        rA = idxA[iA]
+        rB = idxB[iB]
+        if rA == rB
+            nz1 = nzvalA[iA]
+            nz2 = nzvalB[iB]
             if nz1 < nz2
                 return -1
             elseif nz1 > nz2
                 return 1
-            elseif i1 > i1max # col1 has no more nonzeros
-                if i2 > i2max # col2 also has no more nonzeros
+            elseif iA > nnzA # A has no more nonzeros
+                if iB > nnzB # B also has no more nonzeros
                     return 0
-                else # col2 has at least 1 more nonzero
+                else # B has at least 1 more nonzero
                     return 1
                 end
-            elseif i2 > i2max # col1 has at least 1 more nonzero, col2 doesn't
+            elseif iB > nnzB # A has at least 1 more nonzero, B doesn't
                 return -1
             end
-            i1 += 1
-            i2 += 1
-        elseif r1 < r2
+            iA += 1
+            iB += 1
+        elseif rA < rB
             return -1
-        else # r1 > r2
+        else # rA > rB
             return 1
         end
     end
 end
 
+@eval function vcat_offset{Tv,Ti}(A::SparseList{Tv,Ti}, B::SparseList{Tv,Ti},
+        offset::Integer)
+    $binaryheader
+    nnzS = nnzA + nnzB
+    idxS = Array(Ti, nnzS)
+    nzvalS = Array(Tv, nnzS)
+    if nnzA > 0 && nnzB > 0 && idxB[1] + offset <= idxA[nnzA]
+        error("overlapping vcat of SparseLists not implemented")
+    end
+    @inbounds for i = 1:nnzA
+        idxS[i] = idxA[i]
+        nzvalS[i] = nzvalA[i]
+    end
+    @inbounds for i = 1:nnzB
+        idxS[i + nnzA] = idxB[i] + offset
+        nzvalS[i + nnzA] = nzvalB[i]
+    end
+    return SparseList(idxS, nzvalS)
+end
+
+#=
 function appendcolumn!(A::SparseMatrixCSC{Float64,Int},
         col::SparseColumnView, rowoffset::Integer = 0)
     out_colptr = A.colptr
@@ -293,4 +518,4 @@ function concat_expressions(K1::SparseMatrixCSC{Float64,Int},
     end
     return (Ko, Pto)
 end
-
+=#
