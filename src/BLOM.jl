@@ -1,5 +1,9 @@
 module BLOM
 using Calculus, Compat
+import Base: copy, convert, promote_type, promote_rule
+export getValue, setValue!
+
+include("sparseutils.jl")
 
 type Model
     numvars::Int
@@ -24,22 +28,22 @@ type Variable # should probably be immutable?
     idx::Int
 end
 
+function Variable(model::Model; lb = -Inf, ub = Inf, start = NaN, vartype = :Cont)
+    model.numvars += 1
+    push!(model.x, start)
+    push!(model.lb, lb)
+    push!(model.ub, ub)
+    push!(model.vartypes, vartype)
+    model.exponents.m += 1
+    return Variable(model, model.numvars)
+end
+
 function getValue(xi::Variable)
     return xi.model.x[xi.idx]
 end
 
 function setValue!(xi::Variable, v::Real)
     xi.model.x[xi.idx] = v
-end
-
-function newVariable(model::Model; lb = -Inf, ub = Inf, x0 = NaN, vartype = :Cont)
-    model.numvars += 1
-    push!(model.x, x0)
-    push!(model.lb, lb)
-    push!(model.ub, ub)
-    push!(model.vartypes, vartype)
-    model.exponents.m += 1
-    return Variable(model, model.numvars)
 end
 
 type GeneralExpression # linear combination of terms of the form ∏ᵢ x[i]^p[i]
@@ -68,7 +72,6 @@ Base.promote_type(::Type{Variable}, ::Type{Variable}) = GeneralExpression
 Base.promote_rule(::Type{Variable}, ::Type{GeneralExpression}) = GeneralExpression
 
 include("functioncodes.jl")
-include("sparseutils.jl")
 include("operators.jl")
 
 function getValue(ex::GeneralExpression)
