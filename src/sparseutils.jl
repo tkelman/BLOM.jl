@@ -15,6 +15,7 @@ end
 nnz(S::SparseList) = length(S.idx)
 nonzeros(S::SparseList) = S.nzval
 rowvals(S::SparseList) = S.idx
+isempty(S::SparseList) = (nnz(S) == 0)
 
 copy(S::SparseList) = SparseList(copy(S.idx), copy(S.nzval))
 
@@ -150,6 +151,8 @@ nnz(S::SparseMatrixASC) = mapreduce(nnz, +, 0, S.cols) # this is O(n), not O(1)
 
 copy(S::SparseMatrixASC) = SparseMatrixASC(S.m, S.n,
     [copy(col) for col in S.cols])
+shallowcopy(S::SparseMatrixASC) = SparseMatrixASC(S.m, S.n,
+    [col for col in S.cols])
 
 function convert{Tv,Ti,TvS,TiS}(::Type{SparseMatrixASC{Tv,Ti}},
         S::SparseMatrixASC{TvS,TiS})
@@ -460,8 +463,8 @@ function concat_expressions(K1::SparseMatrixASC{Float64,Int},
     (Pt2_m, Pt2_n) = size(Pt2)
     Pt1_cols = Pt1.cols
     Pt2_cols = Pt2.cols
-    @assert K1_n == Pt1_n
-    @assert K2_n == Pt2_n
+    @assert K1_n == Pt1_n == length(K1_cols) == length(Pt1_cols)
+    @assert K2_n == Pt2_n == length(K2_cols) == length(Pt2_cols)
     Pt2_c = 1
     if Pt2_c > Pt2_n
         if allow_inplace

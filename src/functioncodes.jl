@@ -63,7 +63,7 @@ function subtable(codes, funcs)
     if length(codes) == 1
         return Expr(:return, Expr(:call, funcs[1], :x))
     else
-        mid = div(length(codes), 2)
+        mid = length(codes) >>> 1
         return Expr(:if, Expr(:comparison, :p, :(<=), codes[mid]),
             subtable(codes[1:mid], funcs[1:mid]),
             subtable(codes[mid+1:end], funcs[mid+1:end]))

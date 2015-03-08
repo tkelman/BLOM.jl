@@ -148,29 +148,13 @@ for (code, f) in specialfunctions
     @eval (Base.$f)(x1::Variable) = x1 ^ $code
 end
 
-function isconstant(ex1::GeneralExpression)
-    coefs = ex1.coefs
-    if length(coefs) == 0
-        return true
-    elseif length(coefs) == 1
-        return (nnz(ex1.exponents) == 0)
-    else
-        return false
-    end
-end
-
-function isvariable(ex1::GeneralExpression)
-    coefs = ex1.coefs
-    if length(coefs) == 1
-        col1 = ex1.exponents.cols[1]
-        if coefs[1] == 1.0 && nnz(col1) == 1 && col1.nzval[1] == 1.0
-            return true
-        else
-            return false
-        end
-    else
-        return false
-    end
-end
+isconstant(sl::SparseList) = (nnz(sl) == 0)
+isconstant(ex::GeneralExpression) = (length(ex.coefs) == 0 ||
+    (length(ex.coefs) == 1 && nnz(ex.exponents) == 0))
+isvariable(sl::SparseList) = (nonzeros(sl) == [1.0])
+isvariable(ex::GeneralExpression) = (length(ex.coefs) == 1 &&
+    ex.coefs[1] == 1.0 && isvariable(ex.exponents.cols[1]))
+islinear(sl::SparseList) = (isconstant(sl) || isvariable(sl))
+islinear(ex::GeneralExpression) = all(islinear, ex.exponents.cols)
 
 # remember that sqrt(a*b) != sqrt(a)*sqrt(b) for negative Float64 a, b
