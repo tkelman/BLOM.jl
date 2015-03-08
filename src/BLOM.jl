@@ -6,17 +6,18 @@ export getValue, setValue!
 include("sparseutils.jl")
 
 type Model
-    numvars::Int
+    numvars::Int32
     x::Vector{Float64}
     lb::Vector{Float64}
     ub::Vector{Float64}
     vartypes::Vector{Symbol}
     objsense::Symbol
-    objcoefs::SparseList{Float64,Int}
-    constrcoefs::SparseMatrixASC{Float64,Int}
-    exponents::SparseMatrixASC{Float64,Int}
-    Model() = new(0, Float64[], Float64[], Float64[], Symbol[],
-        :Min, slzeros(), asczeros(0,0), asczeros(0,0))
+    objcoefs::SparseList{Float64,Int32}
+    constrcoefs::SparseMatrixASC{Float64,Int32}
+    exponents::SparseMatrixASC{Float64,Int32}
+    Model() = new(0, Float64[], Float64[], Float64[], Symbol[], :Min,
+        slzeros(Float64, Int32), asczeros(Float64, Int32, 0,0),
+        asczeros(Float64, Int32, 0,0))
 end
 # For now, only do one type of Model with equality constraints and variable
 # bounds. Later, look into a separate type of Model which tries harder to
@@ -24,9 +25,9 @@ end
 # constraints, and allows inequality bounds on constraints too (for geometric
 # programming, which should be doable as a special case here).
 
-type Variable # should probably be immutable?
+immutable Variable
     model::Model
-    idx::Int
+    idx::Int32
 end
 
 function Variable(model::Model; lb = -Inf, ub = Inf, start = NaN, vartype = :Cont)
@@ -56,15 +57,15 @@ type GeneralExpression # linear combination of terms of the form ∏ᵢ x[i]^p[i
     # this type may contain special functions and auxiliary equality constraints
     model::Model
     coefs::Vector{Float64}
-    exponents::SparseMatrixASC{Float64,Int}
+    exponents::SparseMatrixASC{Float64,Int32}
     specialfcn::Bool
-    auxK::SparseMatrixASC{Float64,Int} # auxiliary constraint coefficient matrix
-    auxPt::SparseMatrixASC{Float64,Int} # auxiliary constraint exponent matrix
+    auxK::SparseMatrixASC{Float64,Int32} # auxiliary constraint coefficient matrix
+    auxPt::SparseMatrixASC{Float64,Int32} # auxiliary constraint exponent matrix
 end
 function GeneralExpression(model::Model, coefs::Vector{Float64},
-        exponents::SparseMatrixASC{Float64,Int}, specialfcn::Bool)
+        exponents::SparseMatrixASC{Float64,Int32}, specialfcn::Bool)
     return GeneralExpression(model, coefs, exponents, specialfcn,
-        asczeros(0, 0), asczeros(model.numvars, 0))
+        asczeros(Float64,Int32,0,0), asczeros(Float64,Int32,model.numvars,0))
 end
 
 copy(ex::GeneralExpression) = GeneralExpression(ex.model, copy(ex.coefs),
@@ -130,7 +131,7 @@ function toExpr(sl::SparseList)
 end
 
 function toExpr(coefs::Vector{Float64},
-        exponents::SparseMatrixASC{Float64,Int})
+        exponents::SparseMatrixASC{Float64,Int32})
     cols = exponents.cols
     @assert length(coefs) == length(cols)
     if length(coefs) == 0
@@ -152,8 +153,8 @@ function toExpr(coefs::Vector{Float64},
     return length(coefs) == 1 ? args[2] : out
 end
 
-function toExpr(K::SparseMatrixASC{Float64,Int},
-        Pt::SparseMatrixASC{Float64,Int})
+function toExpr(K::SparseMatrixASC{Float64,Int32},
+        Pt::SparseMatrixASC{Float64,Int32})
     (K_m, K_n) = size(K)
     (Pt_m, Pt_n) = size(Pt)
     K_cols = K.cols

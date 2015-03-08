@@ -145,6 +145,8 @@ type SparseMatrixASC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti}
     n::Int                          # number of columns
     cols::Vector{SparseList{Tv,Ti}} # array of columns
 end
+SparseMatrixASC{Tv,Ti<:Integer}(m::Integer, n::Integer,
+    cols::Vector{SparseList{Tv,Ti}}) = SparseMatrixASC(int(m), int(n), cols)
 
 size(S::SparseMatrixASC) = (S.m, S.n)
 nnz(S::SparseMatrixASC) = mapreduce(nnz, +, 0, S.cols) # this is O(n), not O(1)
@@ -340,9 +342,9 @@ end
 
 # add 2 scalar expressions
 function add_expressions(coefs1::Vector{Float64},
-        Pt1::SparseMatrixASC{Float64,Int},
+        Pt1::SparseMatrixASC{Float64,Int32},
         coefs2::Vector{Float64},
-        Pt2::SparseMatrixASC{Float64,Int},
+        Pt2::SparseMatrixASC{Float64,Int32},
         allow_inplace::Bool,
         mult::Float64 = 1.0)
     (Pt1_m, Pt1_n) = size(Pt1)
@@ -391,7 +393,7 @@ function add_expressions(coefs1::Vector{Float64},
         # TODO: check other direction, if last column of Pt2
         # sorts before first column of Pt1
         coefsout = Float64[]
-        Pto = asczeros(Pt1_m, 0)
+        Pto = asczeros(Float64, Int32, Pt1_m, 0)
         Pt1_c = 1
     end
     Pto_cols = Pto.cols
@@ -450,10 +452,10 @@ function add_expressions(coefs1::Vector{Float64},
 end
 
 # concatenate 2 vector expressions
-function concat_expressions(K1::SparseMatrixASC{Float64,Int},
-        Pt1::SparseMatrixASC{Float64,Int},
-        K2::SparseMatrixASC{Float64,Int},
-        Pt2::SparseMatrixASC{Float64,Int},
+function concat_expressions(K1::SparseMatrixASC{Float64,Int32},
+        Pt1::SparseMatrixASC{Float64,Int32},
+        K2::SparseMatrixASC{Float64,Int32},
+        Pt2::SparseMatrixASC{Float64,Int32},
         allow_inplace::Bool)
     (K1_m, K1_n) = size(K1)
     (K2_m, K2_n) = size(K2)
@@ -503,8 +505,8 @@ function concat_expressions(K1::SparseMatrixASC{Float64,Int},
     else
         # TODO: check other direction, if last column of Pt2
         # sorts before first column of Pt1
-        Ko = asczeros(K1_m + K2_m, 0)
-        Pto = asczeros(Pt1_m, 0)
+        Ko = asczeros(Float64, Int32, K1_m + K2_m, 0)
+        Pto = asczeros(Float64, Int32, Pt1_m, 0)
         Pt1_c = 1
     end
     Ko_cols = Ko.cols

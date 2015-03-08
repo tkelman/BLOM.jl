@@ -50,7 +50,7 @@ end
 Base.scale(ex1::GeneralExpression, v2::Real) = scale!(copy(ex1), v2)
 
 num2expr(v1::Real, model::Model) = GeneralExpression(model, Float64[v1],
-    asczeros(model.numvars, 1), false)
+    asczeros(Float64, Int32, model.numvars, 1), false)
 
 +(ex1::GeneralExpression) = copy(ex1)
 -(ex1::GeneralExpression) = GeneralExpression(ex1.model, -ex1.coefs,
@@ -67,7 +67,7 @@ function add!(ex1::GeneralExpression, v2::Real)
     cols = exponents.cols
     if length(coefs) == 0 || nnz(cols[end]) > 0
         push!(coefs, v2)
-        push!(cols, slzeros())
+        push!(cols, slzeros(Float64, Int32))
         exponents.n += 1
     else
         newval = coefs[end] + v2
