@@ -1,4 +1,4 @@
-import Base: nnz, nonzeros, convert, size, showarray, lexcmp
+import Base: nnz, nonzeros, copy, convert, size, showarray, lexcmp
 if VERSION >= v"0.4.0-dev+1307"
     import Base: rowvals
 else
@@ -15,6 +15,8 @@ end
 nnz(S::SparseList) = length(S.idx)
 nonzeros(S::SparseList) = S.nzval
 rowvals(S::SparseList) = S.idx
+
+copy(S::SparseList) = SparseList(copy(S.idx), copy(S.nzval))
 
 convert{Tv,Ti,TvS,TiS}(::Type{SparseList{Tv,Ti}}, S::SparseList{TvS,TiS}) =
     (Tv == TvS && Ti == TiS) ? S : SparseList(convert(Vector{Ti}, S.idx),
@@ -146,6 +148,9 @@ end
 size(S::SparseMatrixASC) = (S.m, S.n)
 nnz(S::SparseMatrixASC) = mapreduce(nnz, +, 0, S.cols) # this is O(n), not O(1)
 
+copy(S::SparseMatrixASC) = SparseMatrixASC(S.m, S.n,
+    [copy(col) for col in S.cols])
+
 function convert{Tv,Ti,TvS,TiS}(::Type{SparseMatrixASC{Tv,Ti}},
         S::SparseMatrixASC{TvS,TiS})
     if Tv == TvS && Ti == TiS
@@ -170,6 +175,10 @@ asczeros(Tv::Type, m::Integer, n::Integer) =
     SparseMatrixASC(m, n, [slzeros(Tv, Int) for col=1:n])
 asczeros(Tv::Type, Ti::Type, m::Integer, n::Integer) =
     SparseMatrixASC(m, n, [slzeros(Tv, Ti) for col=1:n])
+
+# construct a 1-column SparseMatrixASC from a single nonzero
+sparsevec{Tv,Ti<:Integer}(idx::Ti, val::Tv, numvars::Integer) =
+    SparseMatrixASC(numvars, 1, [SparseList([idx], [val])])
 
 for op in (:+, :.+, :-, :.-, :.*)
     @eval begin
@@ -279,12 +288,12 @@ end
 @eval function vcat_offset{Tv,Ti}(A::SparseList{Tv,Ti}, B::SparseList{Tv,Ti},
         offset::Integer)
     $binaryheader
-    nnzS = nnzA + nnzB
-    idxS = Array(Ti, nnzS)
-    nzvalS = Array(Tv, nnzS)
     if nnzA > 0 && nnzB > 0 && idxB[1] + offset <= idxA[nnzA]
         error("overlapping vcat of SparseLists not implemented")
     end
+    nnzS = nnzA + nnzB
+    idxS = Array(Ti, nnzS)
+    nzvalS = Array(Tv, nnzS)
     @inbounds for i = 1:nnzA
         idxS[i] = idxA[i]
         nzvalS[i] = nzvalA[i]
@@ -296,70 +305,63 @@ end
     return SparseList(idxS, nzvalS)
 end
 
-#=
-function appendcolumn!(A::SparseMatrixCSC{Float64,Int},
-        col::SparseColumnView, rowoffset::Integer = 0)
-    out_colptr = A.colptr
-    out_rowval = A.rowval
-    out_nzval = A.nzval
-    in_rowval = col.A.rowval
-    in_nzval = col.A.nzval
-    (imin, imax) = nzrange(col)
-    new_nnz = out_colptr[end] + imax - imin
-    sizehint!(out_rowval, new_nnz)
-    sizehint!(out_nzval, new_nnz)
-    for i = imin : imax
-        push!(out_rowval, in_rowval[i] + rowoffset)
-        push!(out_nzval, in_nzval[i])
+@eval function append_offset!{Tv,Ti}(A::SparseList{Tv,Ti},
+        B::SparseList{Tv,Ti}, offset::Integer)
+    $binaryheader
+    if nnzA > 0 && nnzB > 0 && idxB[1] + offset <= idxA[nnzA]
+        error("overlapping append! of SparseLists not implemented")
     end
-    push!(out_colptr, new_nnz + 1)
-    A.n += 1
+    nnzS = nnzA + nnzB
+    sizehint!(idxA, nnzS)
+    sizehint!(nzvalA, nnzS)
+    @inbounds for i = 1:nnzB
+        push!(idxA, idxB[i] + offset)
+        push!(nzvalA, nzvalB[i])
+    end
     return A
 end
 
-function appendtwocolumns!(A::SparseMatrixCSC{Float64,Int},
-        col1::SparseColumnView, col2::SparseColumnView)
-    # stack col1 and col2 into same new column at end of A
-    out_colptr = A.colptr
-    out_rowval = A.rowval
-    out_nzval = A.nzval
-    in1_rowval = col1.A.rowval
-    in1_nzval = col1.A.nzval
-    (imin1, imax1) = nzrange(col1)
-    rowoffset = col1.A.m
-    in2_rowval = col2.A.rowval
-    in2_nzval = col2.A.nzval
-    (imin2, imax2) = nzrange(col2)
-    new_nnz = out_colptr[end] + imax1 - imin1 + imax2 - imin2 + 1
-    sizehint!(out_rowval, new_nnz)
-    sizehint!(out_nzval, new_nnz)
-    for i = imin1 : imax1
-        push!(out_rowval, in1_rowval[i])
-        push!(out_nzval, in1_nzval[i])
+function offset_rows!(A::SparseMatrixASC, offset::Integer)
+    if offset == 0
+        return A
     end
-    for i = imin2 : imax2
-        push!(out_rowval, in2_rowval[i] + rowoffset)
-        push!(out_nzval, in2_nzval[i])
+    A.m += offset
+    for col in A.cols
+        idx = col.idx
+        for i = 1:length(idx)
+            idx[i] += offset
+        end
     end
-    push!(out_colptr, new_nnz + 1)
-    A.n += 1
     return A
 end
 
 # add 2 scalar expressions
 function add_expressions(coefs1::Vector{Float64},
-        Pt1::SparseMatrixCSC{Float64,Int},
+        Pt1::SparseMatrixASC{Float64,Int},
         coefs2::Vector{Float64},
-        Pt2::SparseMatrixCSC{Float64,Int},
+        Pt2::SparseMatrixASC{Float64,Int},
         allow_inplace::Bool,
         mult::Float64 = 1.0)
     (Pt1_m, Pt1_n) = size(Pt1)
     (Pt2_m, Pt2_n) = size(Pt2)
-    Pt1_nnz = nnz(Pt1)
-    Pt2_nnz = nnz(Pt2)
+    Pt1_cols = Pt1.cols
+    Pt2_cols = Pt2.cols
     Pt2_c = 1
-    Pt2_cv = SparseColumnView(Pt2, Pt2_c)
-    lc = lexcmp(SparseColumnView(Pt1, Pt1_n), Pt2_cv)
+    if Pt2_c > Pt2_n
+        if allow_inplace
+            return (coefs1, Pt1)
+        else
+            return (copy(coefs1), copy(Pt1))
+        end
+    elseif Pt1_n == 0
+        if allow_inplace
+            return (scale!(coefs2, mult), Pt2)
+        else
+            return (mult .* coefs2, copy(Pt2))
+        end
+    end
+    Pt2_col = Pt2_cols[Pt2_c]
+    lc = lexcmp(Pt1_cols[Pt1_n], Pt2_col)
     if lc <= 0
         if allow_inplace
             coefsout = coefs1
@@ -374,84 +376,111 @@ function add_expressions(coefs1::Vector{Float64},
             if newcoef == 0.0
                 # drop the already-copied last column of Pt1
                 pop!(coefsout)
+                pop!(Pto.cols)
                 Pto.n -= 1
-                (imin, imax) = nzrange(SparseColumnView(Pt1, Pt1_n))
-                deleteat!(Pto.rowval, imin : imax)
-                deleteat!(Pto.nzval, imin : imax)
-                pop!(Pto.colptr)
             else
                 coefsout[Pt1_n] = newcoef
             end
             Pt2_c = 2
-            Pt2_cv = SparseColumnView(Pt2, Pt2_c)
+            (Pt2_c <= Pt2_n) && (Pt2_col = Pt2_cols[Pt2_c])
         end
     else
-        # TODO: check other direction, if last column of Pt2 sorts before
-        # first column of Pt1
+        # TODO: check other direction, if last column of Pt2
+        # sorts before first column of Pt1
         coefsout = Float64[]
-        Pto = spzeros(Pt1_m, 0)
+        Pto = asczeros(Pt1_m, 0)
         Pt1_c = 1
     end
+    Pto_cols = Pto.cols
     sizehint!(coefsout, Pt1_n + Pt2_n)
-    sizehint!(Pto.colptr, Pt1_n + Pt2_n + 1)
-    sizehint!(Pto.rowval, Pt1_nnz + Pt2_nnz)
-    sizehint!(Pto.nzval, Pt1_nnz + Pt2_nnz)
+    sizehint!(Pto_cols, Pt1_n + Pt2_n)
 
-    Pt1_cv = SparseColumnView(Pt1, Pt1_c)
-    while (Pt1_c <= Pt1_n) && (Pt2_c <= Pt2_n)
-        lc = lexcmp(Pt1_cv, Pt2_cv)
-        if lc == -1
-            appendcolumn!(Pto, Pt1_cv)
-            push!(coefsout, coefs1[Pt1_c])
-            Pt1_c += 1
-            Pt1_cv = SparseColumnView(Pt1, Pt1_c)
-        elseif lc == 1
-            appendcolumn!(Pto, Pt2_cv)
-            push!(coefsout, mult * coefs2[Pt2_c])
-            Pt2_c += 1
-            Pt2_cv = SparseColumnView(Pt2, Pt2_c)
-        else
-            newcoef = coefs1[Pt1_c] + mult * coefs2[Pt2_c]
-            if newcoef != 0
-                appendcolumn!(Pto, Pt1_cv)
-                push!(coefsout, newcoef)
+    if (Pt1_c <= Pt1_n) && (Pt2_c <= Pt2_n)
+        Pt1_col = Pt1_cols[Pt1_c]
+        while true
+            lc = lexcmp(Pt1_col, Pt2_col)
+            if lc == -1
+                push!(coefsout, coefs1[Pt1_c])
+                push!(Pto_cols, Pt1_col)
+                Pt1_c += 1
+                if Pt1_c > Pt1_n
+                    break
+                else
+                    Pt1_col = Pt1_cols[Pt1_c]
+                end
+            elseif lc == 1
+                push!(coefsout, mult * coefs2[Pt2_c])
+                push!(Pto_cols, Pt2_col)
+                Pt2_c += 1
+                if Pt2_c > Pt2_n
+                    break
+                else
+                    Pt2_col = Pt2_cols[Pt2_c]
+                end
+            else
+                newcoef = coefs1[Pt1_c] + mult * coefs2[Pt2_c]
+                if newcoef != 0.0
+                    push!(coefsout, newcoef)
+                    push!(Pto_cols, Pt1_col)
+                end
+                Pt1_c += 1
+                Pt2_c += 1
+                if Pt1_c > Pt1_n || Pt2_c > Pt2_n
+                    break
+                else
+                    Pt1_col = Pt1_cols[Pt1_c]
+                    Pt2_col = Pt2_cols[Pt2_c]
+                end
             end
-            Pt1_c += 1
-            Pt2_c += 1
-            Pt1_cv = SparseColumnView(Pt1, Pt1_c)
-            Pt2_cv = SparseColumnView(Pt2, Pt2_c)
         end
     end
     for c1 = Pt1_c : Pt1_n
-        appendcolumn!(Pto, SparseColumnView(Pt1, c1))
         push!(coefsout, coefs1[c1])
+        push!(Pto_cols, Pt1_cols[c1])
     end
     for c2 = Pt2_c : Pt2_n
-        appendcolumn!(Pto, SparseColumnView(Pt2, c2))
         push!(coefsout, mult * coefs2[c2])
+        push!(Pto_cols, Pt2_cols[c2])
     end
+    Pto.n = length(Pto.cols)
     return (coefsout, Pto)
 end
 
 # concatenate 2 vector expressions
-function concat_expressions(K1::SparseMatrixCSC{Float64,Int},
-        Pt1::SparseMatrixCSC{Float64,Int},
-        K2::SparseMatrixCSC{Float64,Int},
-        Pt2::SparseMatrixCSC{Float64,Int},
+function concat_expressions(K1::SparseMatrixASC{Float64,Int},
+        Pt1::SparseMatrixASC{Float64,Int},
+        K2::SparseMatrixASC{Float64,Int},
+        Pt2::SparseMatrixASC{Float64,Int},
         allow_inplace::Bool)
     (K1_m, K1_n) = size(K1)
     (K2_m, K2_n) = size(K2)
-    K1_nnz = nnz(K1)
-    K2_nnz = nnz(K2)
+    K1_cols = K1.cols
+    K2_cols = K2.cols
     (Pt1_m, Pt1_n) = size(Pt1)
     (Pt2_m, Pt2_n) = size(Pt2)
-    Pt1_nnz = nnz(Pt1)
-    Pt2_nnz = nnz(Pt2)
+    Pt1_cols = Pt1.cols
+    Pt2_cols = Pt2.cols
     @assert K1_n == Pt1_n
     @assert K2_n == Pt2_n
     Pt2_c = 1
-    Pt2_cv = SparseColumnView(Pt2, Pt2_c)
-    lc = lexcmp(SparseColumnView(Pt1, Pt1_n), Pt2_cv)
+    if Pt2_c > Pt2_n
+        if allow_inplace
+            K1.m += K2_m
+            return (K1, Pt1)
+        else
+            Ko = copy(K1)
+            Ko.m += K2_m
+            return (Ko, copy(Pt1))
+        end
+    elseif Pt1_n == 0
+        if allow_inplace
+            return (offset_rows!(K2, K1_m), Pt2)
+        else
+            return (offset_rows!(copy(K2), K1_m), copy(Pt2))
+        end
+    end
+    Pt2_col = Pt2_cols[Pt2_c]
+    lc = lexcmp(Pt1_cols[Pt1_n], Pt2_col)
     if lc <= 0
         if allow_inplace
             Ko = K1
@@ -462,60 +491,88 @@ function concat_expressions(K1::SparseMatrixCSC{Float64,Int},
         end
         Pt1_c = Pt1_n + 1
         if lc == 0
-            appendcolumn!(Ko, SparseColumnView(K2, Pt2_c), K1_m)
-            # append first column of K2 to end of Ko, but adjust colptr and n to
-            # put it in the same column as the already-copied last column of K1
-            K1_n > 0 && deleteat!(Ko.colptr, K1_n)
-            Ko.n -= 1
+            # append first column of K2 to end of Ko
+            append_offset!(Ko.cols[Pt1_n], K2_cols[Pt2_c], K1_m)
             Pt2_c = 2
-            Pt2_cv = SparseColumnView(Pt2, Pt2_c)
+            (Pt2_c <= Pt2_n) && (Pt2_col = Pt2_cols[Pt2_c])
         end
         Ko.m += K2_m
     else
-        # TODO: check other direction, if last column of Pt2 sorts before
-        # first column of Pt1
-        Ko = spzeros(K1_m + K2_m, 0)
-        Pto = spzeros(Pt1_m, 0)
+        # TODO: check other direction, if last column of Pt2
+        # sorts before first column of Pt1
+        Ko = asczeros(K1_m + K2_m, 0)
+        Pto = asczeros(Pt1_m, 0)
         Pt1_c = 1
     end
-    sizehint!(Ko.colptr, K1_n + K2_n + 1)
-    sizehint!(Ko.rowval, K1_nnz + K2_nnz)
-    sizehint!(Ko.nzval, K1_nnz + K2_nnz)
-    sizehint!(Pto.colptr, Pt1_n + Pt2_n + 1)
-    sizehint!(Pto.rowval, Pt1_nnz + Pt2_nnz)
-    sizehint!(Pto.nzval, Pt1_nnz + Pt2_nnz)
+    Ko_cols = Ko.cols
+    Pto_cols = Pto.cols
+    sizehint!(Ko_cols, K1_n + K2_n)
+    sizehint!(Pto_cols, Pt1_n + Pt2_n)
 
-    Pt1_cv = SparseColumnView(Pt1, Pt1_c)
-    while (Pt1_c <= Pt1_n) && (Pt2_c <= Pt2_n)
-        lc = lexcmp(Pt1_cv, Pt2_cv)
-        if lc == -1
-            appendcolumn!(Pto, Pt1_cv)
-            appendcolumn!(Ko, SparseColumnView(K1, Pt1_c))
-            Pt1_c += 1
-            Pt1_cv = SparseColumnView(Pt1, Pt1_c)
-        elseif lc == 1
-            appendcolumn!(Pto, Pt2_cv)
-            appendcolumn!(Ko, SparseColumnView(K2, Pt2_c), K1_m)
-            Pt2_c += 1
-            Pt2_cv = SparseColumnView(Pt2, Pt2_c)
-        else
-            appendcolumn!(Pto, Pt1_cv)
-            appendtwocolumns!(Ko, SparseColumnView(K1, Pt1_c),
-                SparseColumnView(K2, Pt2_c))
-            Pt1_c += 1
-            Pt2_c += 1
-            Pt1_cv = SparseColumnView(Pt1, Pt1_c)
-            Pt2_cv = SparseColumnView(Pt2, Pt2_c)
+    if (Pt1_c <= Pt1_n) && (Pt2_c <= Pt2_n)
+        Pt1_col = Pt1_cols[Pt1_c]
+        while true
+            lc = lexcmp(Pt1_col, Pt2_col)
+            if lc == -1
+                push!(Ko_cols, K1_cols[Pt1_c])
+                push!(Pto_cols, Pt1_col)
+                Pt1_c += 1
+                if Pt1_c > Pt1_n
+                    break
+                else
+                    Pt1_col = Pt1_cols[Pt1_c]
+                end
+            elseif lc == 1
+                Ko_col = K2_cols[Pt2_c]
+                if allow_inplace
+                    Ko_col.idx[:] += K1_m
+                else
+                    Ko_col = SparseList(Ko_col.idx + K1_m, Ko_col.nzval)
+                end
+                push!(Ko_cols, Ko_col)
+                push!(Pto_cols, Pt2_col)
+                Pt2_c += 1
+                if Pt2_c > Pt2_n
+                    break
+                else
+                    Pt2_col = Pt2_cols[Pt2_c]
+                end
+            else
+                K1_col = K1_cols[Pt1_c]
+                K2_col = K2_cols[Pt2_c]
+                if allow_inplace
+                    Ko_col = append_offset!(K1_col, K2_col, K1_m)
+                else
+                    Ko_col = vcat_offset(K1_col, K2_col, K1_m)
+                end
+                push!(Ko_cols, Ko_col)
+                push!(Pto_cols, Pt1_col)
+                Pt1_c += 1
+                Pt2_c += 1
+                if Pt1_c > Pt1_n || Pt2_c > Pt2_n
+                    break
+                else
+                    Pt1_col = Pt1_cols[Pt1_c]
+                    Pt2_col = Pt2_cols[Pt2_c]
+                end
+            end
         end
     end
     for c1 = Pt1_c : Pt1_n
-        appendcolumn!(Pto, SparseColumnView(Pt1, c1))
-        appendcolumn!(Ko, SparseColumnView(K1, c1))
+        push!(Ko_cols, K1_cols[c1])
+        push!(Pto_cols, Pt1_cols[c1])
     end
     for c2 = Pt2_c : Pt2_n
-        appendcolumn!(Pto, SparseColumnView(Pt2, c2))
-        appendcolumn!(Ko, SparseColumnView(K2, c2))
+        Ko_col = K2_cols[c2]
+        if allow_inplace
+            Ko_col.idx[:] += K1_m
+        else
+            Ko_col = SparseList(Ko_col.idx + K1_m, Ko_col.nzval)
+        end
+        push!(Ko_cols, Ko_col)
+        push!(Pto_cols, Pt2_cols[c2])
     end
+    Ko.n = length(Ko.cols)
+    Pto.n = length(Pto.cols)
     return (Ko, Pto)
 end
-=#

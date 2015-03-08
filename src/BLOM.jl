@@ -11,11 +11,11 @@ type Model
     lb::Vector{Float64}
     ub::Vector{Float64}
     vartypes::Vector{Symbol}
-    objcoefs::SparseMatrixCSC{Float64,Int} # actually a sparse vector
-    constrcoefs::SparseMatrixCSC{Float64,Int}
-    exponents::SparseMatrixCSC{Float64,Int}
+    objcoefs::SparseList{Float64,Int}
+    constrcoefs::SparseMatrixASC{Float64,Int}
+    exponents::SparseMatrixASC{Float64,Int}
     Model() = new(0, Float64[], Float64[], Float64[], Symbol[],
-        spzeros(0,1), spzeros(0,0), spzeros(0,0))
+        slzeros(), asczeros(0,0), asczeros(0,0))
 end
 # For now, only do one type of Model with equality constraints and variable
 # bounds. Later, look into a separate type of Model which tries harder to
@@ -38,9 +38,7 @@ function Variable(model::Model; lb = -Inf, ub = Inf, start = NaN, vartype = :Con
     return Variable(model, model.numvars)
 end
 
-function getValue(xi::Variable)
-    return xi.model.x[xi.idx]
-end
+getValue(xi::Variable) = xi.model.x[xi.idx]
 
 function setValue!(xi::Variable, v::Real)
     xi.model.x[xi.idx] = v
@@ -50,41 +48,42 @@ type GeneralExpression # linear combination of terms of the form ∏ᵢ x[i]^p[i
     # this type may contain special functions and auxiliary equality constraints
     model::Model
     coefs::Vector{Float64}
-    exponents::SparseMatrixCSC{Float64,Int}
+    exponents::SparseMatrixASC{Float64,Int}
     specialfcn::Bool
-    auxK::SparseMatrixCSC{Float64,Int} # auxiliary constraint coefficient matrix
-    auxPt::SparseMatrixCSC{Float64,Int} # auxiliary constraint exponent matrix
+    auxK::SparseMatrixASC{Float64,Int} # auxiliary constraint coefficient matrix
+    auxPt::SparseMatrixASC{Float64,Int} # auxiliary constraint exponent matrix
+end
+function GeneralExpression(model::Model, coefs::Vector{Float64},
+        exponents::SparseMatrixASC{Float64,Int}, specialfcn::Bool)
+    return GeneralExpression(model, coefs, exponents, specialfcn,
+        asczeros(0, 0), asczeros(model.numvars, 0))
 end
 
-function Base.copy(ex::GeneralExpression)
-    return GeneralExpression(ex.model, copy(ex.coefs), copy(ex.exponents),
-        ex.specialfcn, copy(ex.auxK), copy(ex.auxPt))
-end
+copy(ex::GeneralExpression) = GeneralExpression(ex.model, copy(ex.coefs),
+    copy(ex.exponents), ex.specialfcn, copy(ex.auxK), copy(ex.auxPt))
 
-function Base.convert(::Type{GeneralExpression}, x::Variable)
-    model = x.model
-    numvars = model.numvars
-    return GeneralExpression(model, [1.0], sparsevec(x.idx, 1.0, numvars),
-        false, spzeros(0, 0), spzeros(numvars, 0))
-end
+convert(::Type{GeneralExpression}, x::Variable) = GeneralExpression(x.model,
+    [1.0], sparsevec(x.idx, 1.0, x.model.numvars), false)
 
-Base.promote_type(::Type{Variable}, ::Type{Variable}) = GeneralExpression
-Base.promote_rule(::Type{Variable}, ::Type{GeneralExpression}) = GeneralExpression
+promote_type(::Type{Variable}, ::Type{Variable}) = GeneralExpression
+promote_rule(::Type{Variable}, ::Type{GeneralExpression}) = GeneralExpression
 
 include("functioncodes.jl")
 include("operators.jl")
 
 function getValue(ex::GeneralExpression)
-    x = ex.model.x
     coefs = ex.coefs
     exponents = ex.exponents
-    rowvals = exponents.rowval
-    nzvals = exponents.nzval
+    cols = exponents.cols
+    @assert length(coefs) == length(cols)
+    x = ex.model.x
     result = 0.0
-    for col = 1:length(coefs)
+    @inbounds for col = 1:length(coefs)
+        curcol = cols[col]
+        rowvals = curcol.idx
+        nzvals = curcol.nzval
         prodval = 1.0
-        (imin, imax) = nzrange(SparseColumnView(exponents, col))
-        for i = imin:imax
+        for i = 1:length(rowvals)
             prodval *= evalfunction(x[rowvals[i]], nzvals[i])
         end
         result += coefs[col] * prodval

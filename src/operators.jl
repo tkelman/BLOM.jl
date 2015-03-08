@@ -49,11 +49,8 @@ function Base.scale!(ex1::GeneralExpression, v2::Real)
 end
 Base.scale(ex1::GeneralExpression, v2::Real) = scale!(copy(ex1), v2)
 
-function num2expr(v1::Real, model::Model)
-    numvars = model.numvars
-    return GeneralExpression(model, Float64[v1], spzeros(numvars, 1),
-        false, spzeros(0, 0), spzeros(numvars, 0))
-end
+num2expr(v1::Real, model::Model) = GeneralExpression(model, Float64[v1],
+    asczeros(model.numvars, 1), false)
 
 +(ex1::GeneralExpression) = copy(ex1)
 -(ex1::GeneralExpression) = GeneralExpression(ex1.model, -ex1.coefs,
@@ -67,12 +64,10 @@ function add!(ex1::GeneralExpression, v2::Real)
     end
     coefs = ex1.coefs
     exponents = ex1.exponents
-    colptr = exponents.colptr
-    if length(colptr) == 0
-        error("invalid expression")
-    elseif length(coefs) == 0 || colptr[end-1] != colptr[end]
+    cols = exponents.cols
+    if length(coefs) == 0 || nnz(cols[end]) > 0
         push!(coefs, v2)
-        push!(colptr, colptr[end])
+        push!(cols, slzeros())
         exponents.n += 1
     else
         newval = coefs[end] + v2
@@ -80,7 +75,7 @@ function add!(ex1::GeneralExpression, v2::Real)
             coefs[end] = newval
         else
             pop!(coefs)
-            pop!(colptr)
+            pop!(cols)
             exponents.n -= 1
         end
     end
@@ -147,12 +142,35 @@ rdiv!(v1::Real, x2::Variable) = scale!(x2 ^ -1.0, v1)
 /(v1::Real, x2::Variable) = scale!(x2 ^ -1.0, v1)
 
 ^(x1::Variable, v2::Integer) = x1 ^ float64(v2)
-function ^(x1::Variable, v2::Real)
-    model = x1.model
-    numvars = model.numvars
-    return GeneralExpression(model, [1.0], sparsevec(x1.idx, v2, numvars),
-        v2 >= minfunctioncode, spzeros(0, 0), spzeros(numvars, 0))
-end
+^(x1::Variable, v2::Real) = GeneralExpression(x1.model, [1.0],
+    sparsevec(x1.idx, float64(v2), x1.model.numvars), v2 >= minfunctioncode)
 for (code, f) in specialfunctions
     @eval (Base.$f)(x1::Variable) = x1 ^ $code
 end
+
+function isconstant(ex1::GeneralExpression)
+    coefs = ex1.coefs
+    if length(coefs) == 0
+        return true
+    elseif length(coefs) == 1
+        return (nnz(ex1.exponents) == 0)
+    else
+        return false
+    end
+end
+
+function isvariable(ex1::GeneralExpression)
+    coefs = ex1.coefs
+    if length(coefs) == 1
+        col1 = ex1.exponents.cols[1]
+        if coefs[1] == 1.0 && nnz(col1) == 1 && col1.nzval[1] == 1.0
+            return true
+        else
+            return false
+        end
+    else
+        return false
+    end
+end
+
+# remember that sqrt(a*b) != sqrt(a)*sqrt(b) for negative Float64 a, b
