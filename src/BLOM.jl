@@ -16,8 +16,8 @@ type Model
     constrcoefs::SparseMatrixASC{Float64,Int32}
     exponents::SparseMatrixASC{Float64,Int32}
     Model() = new(0, Float64[], Float64[], Float64[], Symbol[], :Min,
-        slzeros(Float64, Int32), asczeros(Float64, Int32, 0,0),
-        asczeros(Float64, Int32, 0,0))
+        slzeros(Float64, Int32), asczeros(Float64, Int32, 0, 0),
+        asczeros(Float64, Int32, 0, 0))
 end
 # For now, only do one type of Model with equality constraints and variable
 # bounds. Later, look into a separate type of Model which tries harder to
@@ -139,7 +139,7 @@ function toExpr(coefs::Vector{Float64},
     end
     out = Expr(:call, :+)
     args = out.args
-    for i in 1:length(coefs)
+    for i = 1:length(coefs)
         coefi = coefs[i]
         term = toExpr(cols[i])
         if coefi == 1.0
@@ -234,13 +234,13 @@ function show(io::IO, model::Model)
         if vartypei != :Cont
             (isfinite(lbi) || isfinite(ubi)) && print(io, ", ", vari)
             if vartypei == :Int
-                print(io, " ∈ Integer")
+                print(io, " Integer")
             elseif vartypei == :Bin
-                print(io, " ∈ Binary")
+                print(io, " Binary")
             elseif vartypei == :SemiCont
-                print(io, " ∈ SemiContinuous")
+                print(io, " SemiContinuous")
             elseif vartypei == :SemiInt
-                print(io, " ∈ SemiInteger")
+                print(io, " SemiInteger")
             elseif vartypei == :Fixed
                 print(io, " Fixed")
             else
