@@ -142,48 +142,44 @@ end
 # array of sparse columns matrix format
 type SparseMatrixASC{Tv,Ti<:Integer} <: AbstractSparseMatrix{Tv,Ti}
     m::Int                          # number of rows
-    n::Int                          # number of columns
     cols::Vector{SparseList{Tv,Ti}} # array of columns
 end
-SparseMatrixASC{Tv,Ti<:Integer}(m::Integer, n::Integer,
-    cols::Vector{SparseList{Tv,Ti}}) = SparseMatrixASC(int(m), int(n), cols)
+SparseMatrixASC{Tv,Ti<:Integer}(m::Integer, cols::Vector{SparseList{Tv,Ti}}) =
+    SparseMatrixASC(int(m), cols)
 
-size(S::SparseMatrixASC) = (S.m, S.n)
+size(S::SparseMatrixASC) = (S.m, length(S.cols))
 nnz(S::SparseMatrixASC) = mapreduce(nnz, +, 0, S.cols) # this is O(n), not O(1)
 
-copy(S::SparseMatrixASC) = SparseMatrixASC(S.m, S.n,
-    [copy(col) for col in S.cols])
-shallowcopy(S::SparseMatrixASC) = SparseMatrixASC(S.m, S.n,
-    [col for col in S.cols])
+copy(S::SparseMatrixASC) = SparseMatrixASC(S.m, [copy(col) for col in S.cols])
+shallowcopy(S::SparseMatrixASC) = SparseMatrixASC(S.m, [col for col in S.cols])
 
 function convert{Tv,Ti,TvS,TiS}(::Type{SparseMatrixASC{Tv,Ti}},
         S::SparseMatrixASC{TvS,TiS})
     if Tv == TvS && Ti == TiS
         return S
     else
-        return SparseMatrixASC(S.m, S.n,
-            convert(Vector{SparseList{Tv,Ti}}, S.cols))
+        return SparseMatrixASC(S.m, convert(Vector{SparseList{Tv,Ti}}, S.cols))
     end
 end
 
 convert{Tv,Ti}(::Type{SparseMatrixCSC{Tv,Ti}}, S::SparseMatrixASC{Tv,Ti}) =
-    SparseMatrixCSC(S.m, S.n, cumsum(unshift!(map(nnz, S.cols), one(Ti))),
+    SparseMatrixCSC(S.m, size(S,2), cumsum(unshift!(map(nnz,S.cols), one(Ti))),
         vcat(map(rowvals, S.cols)...), vcat(map(nonzeros, S.cols)...))
 
 convert{Tv,Ti}(::Type{SparseMatrixASC{Tv,Ti}}, S::SparseMatrixCSC{Tv,Ti}) =
-    SparseMatrixASC(S.m, S.n, [SparseList(S.rowval[nzrange(S, col)],
+    SparseMatrixASC(S.m, [SparseList(S.rowval[nzrange(S, col)],
         S.nzval[nzrange(S, col)]) for col=1:S.n])
 
 # Base.spzeros isn't extensible to other output formats
 asczeros(m::Integer, n::Integer) = asczeros(Float64, m, n)
 asczeros(Tv::Type, m::Integer, n::Integer) =
-    SparseMatrixASC(m, n, [slzeros(Tv, Int) for col=1:n])
+    SparseMatrixASC(m, [slzeros(Tv, Int) for col=1:n])
 asczeros(Tv::Type, Ti::Type, m::Integer, n::Integer) =
-    SparseMatrixASC(m, n, [slzeros(Tv, Ti) for col=1:n])
+    SparseMatrixASC(m, [slzeros(Tv, Ti) for col=1:n])
 
 # construct a 1-column SparseMatrixASC from a single nonzero
 sparsevec{Tv,Ti<:Integer}(idx::Ti, val::Tv, numvars::Integer) =
-    SparseMatrixASC(numvars, 1, [SparseList([idx], [val])])
+    SparseMatrixASC(numvars, [SparseList([idx], [val])])
 
 for op in (:+, :.+, :-, :.-, :.*)
     @eval begin
@@ -204,8 +200,7 @@ for op in (:+, :.+, :-, :.-, :.*)
             end
             Acols = A.cols
             Bcols = B.cols
-            return SparseMatrixASC(m, n,
-                [($op)(Acols[col], Bcols[col]) for col=1:n])
+            return SparseMatrixASC(m, [($op)(Acols[col], Bcols[col]) for col=1:n])
         end
     end
 end
@@ -213,8 +208,9 @@ end
 function showarray(io::IO, S::SparseMatrixASC;
                    header::Bool=true, limit::Bool=Base._limit_output,
                    rows = Base.tty_size()[1], repr=false)
+    (m, n) = size(S)
     if header
-        print(io, S.m, "x", S.n, " sparse matrix with ", nnz(S), " ",
+        print(io, m, "x", n, " sparse matrix with ", nnz(S), " ",
             eltype(S), " entries:")
     end
 
@@ -223,10 +219,10 @@ function showarray(io::IO, S::SparseMatrixASC;
     else
         half_screen_rows = typemax(Int)
     end
-    pad = ndigits(max(S.m,S.n))
+    pad = ndigits(max(m, n))
     k = 0
     sep = "\n\t"
-    for col = 1:S.n
+    for col = 1:n
         curcol = S.cols[col]
         idx = curcol.idx
         nzval = curcol.nzval
@@ -382,7 +378,6 @@ function add_expressions(coefs1::Vector{Float64},
                 # drop the already-copied last column of Pt1
                 pop!(coefsout)
                 pop!(Pto.cols)
-                Pto.n -= 1
             else
                 coefsout[Pt1_n] = newcoef
             end
@@ -447,7 +442,6 @@ function add_expressions(coefs1::Vector{Float64},
         push!(coefsout, mult * coefs2[c2])
         push!(Pto_cols, Pt2_cols[c2])
     end
-    Pto.n = length(Pto.cols)
     return (coefsout, Pto)
 end
 
@@ -465,8 +459,8 @@ function concat_expressions(K1::SparseMatrixASC{Float64,Int32},
     (Pt2_m, Pt2_n) = size(Pt2)
     Pt1_cols = Pt1.cols
     Pt2_cols = Pt2.cols
-    @assert K1_n == Pt1_n == length(K1_cols) == length(Pt1_cols)
-    @assert K2_n == Pt2_n == length(K2_cols) == length(Pt2_cols)
+    @assert K1_n == Pt1_n
+    @assert K2_n == Pt2_n
     Pt2_c = 1
     if Pt2_c > Pt2_n
         if allow_inplace
@@ -577,7 +571,5 @@ function concat_expressions(K1::SparseMatrixASC{Float64,Int32},
         push!(Ko_cols, Ko_col)
         push!(Pto_cols, Pt2_cols[c2])
     end
-    Ko.n = length(Ko.cols)
-    Pto.n = length(Pto.cols)
     return (Ko, Pto)
 end

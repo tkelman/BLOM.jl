@@ -68,7 +68,6 @@ function add!(ex1::GeneralExpression, v2::Real)
     if length(coefs) == 0 || nnz(cols[end]) > 0
         push!(coefs, v2)
         push!(cols, slzeros(Float64, Int32))
-        exponents.n += 1
     else
         newval = coefs[end] + v2
         if newval != 0.0
@@ -76,7 +75,6 @@ function add!(ex1::GeneralExpression, v2::Real)
         else
             pop!(coefs)
             pop!(cols)
-            exponents.n -= 1
         end
     end
     return ex1

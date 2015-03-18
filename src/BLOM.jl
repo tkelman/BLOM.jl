@@ -159,7 +159,7 @@ function toExpr(K::SparseMatrixASC{Float64,Int32},
     (Pt_m, Pt_n) = size(Pt)
     K_cols = K.cols
     Pt_cols = Pt.cols
-    @assert K_n == Pt_n == length(K_cols) == length(Pt_cols)
+    @assert K_n == Pt_n
     out = Any[Expr(:call, :+) for row = 1:K_m]
     for col = 1:K_n
         term = toExpr(Pt_cols[col])
@@ -207,7 +207,7 @@ function show(io::IO, model::Model)
     objcoefs = model.objcoefs
     idx = objcoefs.idx
     exponents = model.exponents
-    objexponents = SparseMatrixASC(numvars, length(idx), exponents.cols[idx])
+    objexponents = SparseMatrixASC(numvars, exponents.cols[idx])
     print(io, lowercase(string(model.objsense)), " ",
         toExpr(objcoefs.nzval, objexponents))
     constr = toExpr(model.constrcoefs, exponents)
