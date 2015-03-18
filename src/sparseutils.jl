@@ -1,4 +1,4 @@
-import Base: nnz, nonzeros, copy, convert, size, showarray, lexcmp
+import Base: nnz, nonzeros, getindex, copy, convert, size, showarray, lexcmp
 if VERSION >= v"0.4.0-dev+1307"
     import Base: rowvals
 else
@@ -16,6 +16,17 @@ nnz(S::SparseList) = length(S.idx)
 nonzeros(S::SparseList) = S.nzval
 rowvals(S::SparseList) = S.idx
 isempty(S::SparseList) = (nnz(S) == 0)
+
+function getindex{Tv,Ti}(S::SparseList{Tv,Ti}, i::Integer)
+    (i < 1) && throw(BoundsError())
+    idx = S.idx
+    k = searchsortedfirst(idx, i)
+    if k > length(idx) || i != idx[k]
+        return zero(Tv)
+    else
+        return S.nzval[k]
+    end
+end
 
 copy(S::SparseList) = SparseList(copy(S.idx), copy(S.nzval))
 
@@ -149,6 +160,13 @@ SparseMatrixASC{Tv,Ti<:Integer}(m::Integer, cols::Vector{SparseList{Tv,Ti}}) =
 
 size(S::SparseMatrixASC) = (S.m, length(S.cols))
 nnz(S::SparseMatrixASC) = mapreduce(nnz, +, 0, S.cols) # this is O(n), not O(1)
+
+function getindex(S::SparseMatrixASC, i::Integer, j::Integer)
+    (m, n) = size(S)
+    (i < 1 || i > m) && throw(BoundsError())
+    (j < 1 || j > n) && throw(BoundsError())
+    return S.cols[j][i]
+end
 
 copy(S::SparseMatrixASC) = SparseMatrixASC(S.m, [copy(col) for col in S.cols])
 shallowcopy(S::SparseMatrixASC) = SparseMatrixASC(S.m, [col for col in S.cols])
