@@ -60,8 +60,13 @@ function regenerate_functioncodes()
 end
 
 function subtable(codes, funcs)
-    if length(codes) == 1
-        return Expr(:return, Expr(:call, funcs[1], :x))
+    if length(codes) <= 3
+        out = Expr(:if, Expr(:comparison, :p, :(==), codes[1]),
+            Expr(:return, Expr(:call, funcs[1], :x)))
+        if length(codes) > 1
+            push!(out.args, subtable(codes[2:end], funcs[2:end]))
+        end
+        return out
     else
         mid = length(codes) >>> 1
         return Expr(:if, Expr(:comparison, :p, :(<=), codes[mid]),
@@ -82,9 +87,8 @@ end
 function evalfunction(x, p)
     if p < minfunctioncode
         return x ^ p
-    elseif haskey(specialfunctions, p)
-        @lookuptable
     else
+        @lookuptable
         error("function not found for code $p")
     end
 end
