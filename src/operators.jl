@@ -156,3 +156,6 @@ islinear(sl::SparseList) = (isconstant(sl) || isvariable(sl))
 islinear(ex::GeneralExpression) = all(islinear, ex.exponents.cols)
 
 # remember that sqrt(a*b) != sqrt(a)*sqrt(b) for negative Float64 a, b
+# integer power * fractional power is fine, integer power * integer power
+# is fine, fractional power * fractional power is a problem if the result
+# is an integer power
